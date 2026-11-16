@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#10131d">
+<title>Visual AI — Local Edition</title>
+<style>
+:root{color-scheme:dark;--bg:#0d1018;--panel:#171c29;--panel2:#202738;--line:#30394d;--text:#eef2ff;--muted:#a8b2c8;--accent:#8b9cff;--good:#73d6a0;--bad:#ff8585}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 20% 0%,#202a48 0,transparent 35%),var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
+header{padding:22px max(18px,calc((100% - 1180px)/2));border-bottom:1px solid var(--line);background:#0d1018d9;position:sticky;top:0;z-index:5;backdrop-filter:blur(12px)}
+h1{font-size:clamp(1.35rem,3vw,2rem);margin:0}header p{margin:4px 0 0;color:var(--muted)}
+main{max-width:1180px;margin:22px auto;padding:0 16px 40px;display:grid;grid-template-columns:minmax(0,1.25fr) minmax(300px,.85fr);gap:18px}
+.panel{background:linear-gradient(160deg,#1a2030,#131824);border:1px solid var(--line);border-radius:16px;padding:16px;min-width:0;box-shadow:0 12px 32px #0002}
+.panel h2{font-size:1.05rem;margin:0 0 12px}.row{display:flex;gap:9px;align-items:center;flex-wrap:wrap}.spread{justify-content:space-between}
+button,.file-label{border:1px solid var(--line);border-radius:10px;background:var(--panel2);color:var(--text);padding:9px 13px;font:inherit;cursor:pointer}
+button.primary{background:#596bd0;border-color:#7182ec}button:disabled{opacity:.45;cursor:not-allowed}button:hover:not(:disabled),.file-label:hover{filter:brightness(1.15)}
+input,textarea,select{width:100%;border:1px solid var(--line);border-radius:10px;background:#0e1420;color:var(--text);padding:11px;font:inherit}
+textarea{resize:vertical;min-height:72px}label{display:block;color:var(--muted);font-size:.88rem;margin:10px 0 5px}
+.status{font-size:.88rem;color:var(--muted);min-height:1.5em}.status.good{color:var(--good)}.status.bad{color:var(--bad)}
+.progress{height:8px;background:#0a0e17;border-radius:20px;overflow:hidden;margin:9px 0}.progress>div{height:100%;width:0;background:linear-gradient(90deg,#7286ff,#71d7c4);transition:width .2s}
+.chatlog{height:390px;overflow:auto;background:#0d121d;border:1px solid var(--line);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:10px}
+.msg{max-width:92%;padding:10px 12px;border-radius:13px;white-space:pre-wrap;overflow-wrap:anywhere}.msg.user{align-self:flex-end;background:#344477}.msg.ai{align-self:flex-start;background:#202a3b}.msg small{display:block;color:#bdc8df;font-size:.72rem;margin-bottom:3px}
+.chat-controls{display:grid;grid-template-columns:1fr auto;gap:8px;margin-top:10px}.chat-controls textarea{min-height:48px;max-height:130px}
+video{width:100%;aspect-ratio:16/9;object-fit:cover;background:#080b12;border-radius:12px;border:1px solid var(--line)}.camera-wrap{position:relative}
+#cameraState{position:absolute;left:10px;top:10px;background:#0009;padding:4px 8px;border-radius:8px;font-size:.78rem}
+.observations{max-height:150px;overflow:auto;background:#0e1420;border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--muted);font-size:.88rem}
+.pill{display:inline-block;border:1px solid var(--line);border-radius:99px;padding:3px 8px;color:var(--muted);font-size:.78rem}
+details{border-top:1px solid var(--line);margin-top:14px;padding-top:10px}summary{cursor:pointer;color:var(--muted)}
+footer{max-width:1180px;margin:0 auto;padding:0 16px 28px;color:var(--muted);font-size:.82rem}
+@media(max-width:850px){main{grid-template-columns:1fr}.chatlog{height:340px}}
+</style>
+</head>
+<body>
+<header>
+  <div class="row spread">
+    <div><h1>Visual AI <span class="pill">Local Edition</span></h1><p>A browser-based assistant with local language-model inference and optional camera recognition.</p></div>
+    <span class="pill" id="privacyPill">No cloud AI API</span>
+  </div>
+</header>
+<main>
+  <section class="panel">
+    <div class="row spread"><h2>Local AI</h2><span class="pill" id="modelBadge">Not loaded</span></div>
+    <p class="status" id="modelStatus">Load the model to start. The first download can be large and requires internet.</p>
+    <div class="progress"><div id="progressBar"></div></div>
+    <div class="row">
+      <button class="primary" id="loadBtn">Load local AI</button>
+      <button id="unloadBtn" disabled>Unload model</button>
+      <button id="clearChatBtn">Clear chat</button>
+    </div>
+    <label for="systemPrompt">Personality / instructions</label>
+    <textarea id="systemPrompt" rows="4">You are Visual AI, a curious, helpful visual-learning assistant. Speak naturally and clearly. Use the camera observations provided to discuss the environment, but distinguish detected labels from certainty. Ask useful questions and admit uncertainty. You are not conscious; you simulate a consistent personality.</textarea>
+    <div style="height:12px"></div>
+    <div class="row spread"><h2>Conversation</h2><span class="pill" id="memoryBadge">Local chat memory</span></div>
+    <div class="chatlog" id="chatLog" aria-live="polite"></div>
+    <div class="chat-controls">
+      <textarea id="messageInput" placeholder="Talk to Visual AI… (Enter to send, Shift+Enter for a new line)" disabled></textarea>
+      <button class="primary" id="sendBtn" disabled>Send</button>
+    </div>
+    <div class="row" style="margin-top:9px">
+      <button id="voiceBtn" disabled>Start voice input</button>
+      <button id="speakToggle">Speech: off</button>
+      <button id="stopSpeakBtn">Stop speech</button>
+    </div>
+    <p class="status" id="chatStatus">Load the model before chatting.</p>
+  </section>
+
+  <aside class="panel">
+    <h2>Camera & visual observations</h2>
+    <div class="camera-wrap">
+      <video id="video" autoplay playsinline muted></video>
+      <span id="cameraState">Camera off</span>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button class="primary" id="cameraBtn">Start camera</button>
+      <button id="stopCameraBtn" disabled>Stop camera</button>
+      <button id="analyzeBtn" disabled>Analyze frame</button>
+    </div>
+    <p class="status" id="cameraStatus">Camera access is optional. Your video is processed in this browser and is not uploaded by this page.</p>
+    <h2 style="margin-top:20px">What the vision system sees</h2>
+    <div class="observations" id="observations">No observations yet. Start the camera and choose Analyze frame.</div>
+    <p class="status">This starter build uses an optional browser vision model to identify common objects. Recognition can be wrong; treat labels as guesses.</p>
+    <details>
+      <summary>Memory & privacy controls</summary>
+      <p class="status">Chat history and learned observation notes are stored in this browser's local storage. They are not sent to a cloud AI service by this page. Clearing site data will erase them.</p>
+      <div class="row">
+        <button id="forgetBtn">Erase saved memory</button>
+        <button id="exportBtn">Export memory</button>
+      </div>
+      <label for="memoryInput">Add a memory manually</label>
+      <input id="memoryInput" placeholder="Example: The red mug is called my travel mug">
+      <button id="saveMemoryBtn" style="margin-top:8px">Save memory</button>
+      <div id="memoryStatus" class="status"></div>
+    </details>
+    <details>
+      <summary>Model and browser notes</summary>
+      <p class="status">This page uses WebLLM with WebGPU. It needs a compatible browser/device, enough available memory, and internet for the initial model download. The model is cached by the browser when supported. For camera access, open this page from HTTPS or localhost.</p>
+      <p class="status">The AI is a language model, not a conscious being. It does not independently train itself; it can use saved notes and camera detections as context.</p>
+    </details>
+  </aside>
+</main>
+<footer>Local-first prototype. Model execution happens on your device when WebGPU is available. External downloads are required for the WebLLM library, model weights, and optional vision library.</footer>
+
+<script type="module">
+import { CreateMLCEngine } from "https://esm.run/@mlc-ai/web-llm";
+
+const MODEL_ID = "Qwen2.5-1.5B-Instruct-q4f16_1-MLC";
+const STORAGE = {
+  chat: "visualai_local_chat_v1",
+  memories: "visualai_local_memories_v1",
+  observations: "visualai_local_observations_v1"
+};
+const $ = id => document.getElementById(id);
+let engine = null;
+let loading = false;
+let cameraStream = null;
+let detector = null;
+let lastObservations = [];
+let speechOn = false;
+let recognition = null;
+let busy = false;
+let chat = safeRead(STORAGE.chat, []);
+let memories = safeRead(STORAGE.memories, []);
+let observationHistory = safeRead(STORAGE.observations, []);
+
+function safeRead(key, fallback) {
+  try { const value = JSON.parse(localStorage.getItem(key)); return value ?? fallback; }
+  catch { return fallback; }
+}
+function save(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); }
+  catch { setStatus("memoryStatus", "Browser storage is full or unavailable.", true); }
+}
+function setStatus(id, message, bad=false) {
+  const el = $(id); el.textContent = message; el.className = "status" + (bad ? " bad" : "");
+}
+function renderChat() {
+  const log = $("chatLog"); log.replaceChildren();
+  for (const item of chat.slice(-60)) {
+    const bubble = document.createElement("div");
+    bubble.className = "msg " + (item.role === "user" ? "user" : "ai");
+    const who = document.createElement("small");
+    who.textContent = item.role === "user" ? "You" : "Visual AI";
+    const body = document.createElement("div"); body.textContent = item.content;
+    bubble.append(who, body); log.append(bubble);
+  }
+  log.scrollTop = log.scrollHeight;
+}
+function addMessage(role, content) {
+  chat.push({role, content, time: Date.now()});
+  chat = chat.slice(-100);
+  save(STORAGE.chat, chat);
+  renderChat();
+}
+function setBusy(value) {
+  busy = value;
+  $("sendBtn").disabled = value || !engine;
+  $("messageInput").disabled = value || !engine;
+}
+function getContext() {
+  const pieces = [];
+  if (memories.length) pieces.push("Saved user-approved memories:\n" + memories.slice(-30).map(x => "- " + x).join("\n"));
+  if (lastObservations.length) pieces.push("Latest camera detections (not guaranteed correct):\n" + lastObservations.map(x => `${x.label} (${Math.round(x.score*100)}% model confidence)`).join(", "));
+  return pieces.join("\n\n");
+}
+
+async function loadModel() {
+  if (engine || loading) return;
+  loading = true;
+  $("loadBtn").disabled = true;
+  $("modelBadge").textContent = "Loading";
+  setStatus("modelStatus", "Checking WebGPU and preparing the local model…");
+  try {
+    if (!("gpu" in navigator)) throw new Error("WebGPU is not available in this browser. Try updating ChromeOS/Chrome or use a compatible device.");
+    const adapter = await navigator.gpu.requestAdapter();
+    if (!adapter) throw new Error("No compatible WebGPU adapter was found.");
+    engine = await CreateMLCEngine(MODEL_ID, {
+      initProgressCallback: report => {
+        if (typeof report.progress === "number") $("progressBar").style.width = `${Math.max(0,Math.min(100,report.progress*100))}%`;
+        setStatus("modelStatus", report.text || "Downloading model files…");
+      }
+    });
+    $("modelBadge").textContent = "Ready";
+    $("modelBadge").style.color = "var(--good)";
+    $("progressBar").style.width = "100%";
+    setStatus("modelStatus", "Local model is ready. You can now chat.");
+    $("unloadBtn").disabled = false;
+    $("messageInput").disabled = false;
+    $("sendBtn").disabled = false;
+    $("voiceBtn").disabled = !("webkitSpeechRecognition" in window || "SpeechRecognition" in window);
+    setStatus("chatStatus", "Ready. Messages are processed locally.");
+  } catch (err) {
+    engine = null;
+    $("modelBadge").textContent = "Unavailable";
+    $("modelBadge").style.color = "var(--bad)";
+    $("loadBtn").disabled = false;
+    setStatus("modelStatus", err.message || String(err), true);
+  } finally { loading = false; }
+}
+$("loadBtn").addEventListener("click", loadModel);
+$("unloadBtn").addEventListener("click", async () => {
+  if (!engine) return;
+  try { await engine.unload(); } catch {}
+  engine = null;
+  $("modelBadge").textContent = "Not loaded";
+  $("loadBtn").disabled = false;
+  $("unloadBtn").disabled = true;
+  $("sendBtn").disabled = true;
+  $("messageInput").disabled = true;
+  $("voiceBtn").disabled = true;
+  setStatus("modelStatus", "Model unloaded. Saved chat and memories remain.");
+});
+
+async function sendMessage() {
+  const input = $("messageInput");
+  const text = input.value.trim();
+  if (!text || !engine || busy) return;
+  input.value = "";
+  addMessage("user", text);
+  setBusy(true);
+  setStatus("chatStatus", "Thinking locally…");
+  try {
+    const system = $("systemPrompt").value.trim();
+    const context = getContext();
+    const messages = [
+      {role:"system", content: system + (context ? "\n\n" + context : "")},
+      ...chat.slice(-14).map(m => ({role:m.role, content:m.content}))
+    ];
+    const reply = await engine.chat.completions.create({
+      messages,
+      temperature: 0.7,
+      top_p: 0.9,
+      max_tokens: 220
+    });
+    const answer = reply.choices?.[0]?.message?.content?.trim() || "I couldn't generate a response. Please try again.";
+    addMessage("assistant", answer);
+    setStatus("chatStatus", "Response generated on your device.");
+    if (speechOn) speak(answer);
+  } catch (err) {
+    setStatus("chatStatus", "Generation error: " + (err.message || err), true);
+  } finally { setBusy(false); input.focus(); }
+}
+$("sendBtn").addEventListener("click", sendMessage);
+$("messageInput").addEventListener("keydown", e => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+});
+$("clearChatBtn").addEventListener("click", () => {
+  if (!confirm("Clear the saved conversation?")) return;
+  chat = []; save(STORAGE.chat, chat); renderChat();
+});
+renderChat();
+
+async function startCamera() {
+  if (cameraStream) return;
+  try {
+    cameraStream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}, audio:false});
+    $("video").srcObject = cameraStream;
+    $("cameraState").textContent = "Camera on";
+    $("cameraBtn").disabled = true;
+    $("stopCameraBtn").disabled = false;
+    $("analyzeBtn").disabled = false;
+    setStatus("cameraStatus", "Camera active. Choose Analyze frame to run object recognition.");
+  } catch (err) { setStatus("cameraStatus", "Camera error: " + (err.message || err), true); }
+}
+function stopCamera() {
+  if (cameraStream) cameraStream.getTracks().forEach(t => t.stop());
+  cameraStream = null; $("video").srcObject = null;
+  $("cameraState").textContent = "Camera off";
+  $("cameraBtn").disabled = false; $("stopCameraBtn").disabled = true; $("analyzeBtn").disabled = true;
+  setStatus("cameraStatus", "Camera stopped.");
+}
+$("cameraBtn").addEventListener("click", startCamera);
+$("stopCameraBtn").addEventListener("click", stopCamera);
+
+async function analyzeFrame() {
+  const video = $("video");
+  if (!cameraStream || video.readyState < 2) return;
+  $("analyzeBtn").disabled = true;
+  setStatus("cameraStatus", "Loading the browser vision model if needed…");
+  try {
+    if (!detector) {
+      if (!window.cocoSsd) {
+        await new Promise((resolve,reject) => {
+          const s = document.createElement("script");
+          s.src = "https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js";
+          s.onload = resolve; s.onerror = () => reject(new Error("Could not load TensorFlow.js"));
+          document.head.append(s);
+        });
+        await new Promise((resolve,reject) => {
+          const s = document.createElement("script");
+          s.src = "https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3";
+          s.onload = resolve; s.onerror = () => reject(new Error("Could not load COCO-SSD"));
+          document.head.append(s);
+        });
+      }
+      detector = await window.cocoSsd.load({base:"lite_mobilenet_v2"});
+    }
+    const predictions = await detector.detect(video);
+    lastObservations = predictions.slice(0,8).map(p => ({label:p.class, score:p.score}));
+    const stamp = new Date().toLocaleTimeString();
+    observationHistory.push({time:stamp, items:lastObservations});
+    observationHistory = observationHistory.slice(-80);
+    save(STORAGE.observations, observationHistory);
+    $("observations").textContent = lastObservations.length
+      ? lastObservations.map(p => `${p.label} — ${Math.round(p.score*100)}% confidence`).join("\n")
+      : "No common objects detected in this frame.";
+    setStatus("cameraStatus", "Frame analyzed locally. You can ask the AI what it sees.");
+  } catch (err) {
+    setStatus("cameraStatus", "Vision error: " + (err.message || err), true);
+  } finally { $("analyzeBtn").disabled = !cameraStream; }
+}
+$("analyzeBtn").addEventListener("click", analyzeFrame);
+
+function speak(text) {
+  if (!("speechSynthesis" in window)) return;
+  speechSynthesis.cancel();
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.rate = 1; speechSynthesis.speak(utterance);
+}
+$("speakToggle").addEventListener("click", () => {
+  speechOn = !speechOn; $("speakToggle").textContent = "Speech: " + (speechOn ? "on" : "off");
+});
+$("stopSpeakBtn").addEventListener("click", () => speechSynthesis?.cancel());
+$("voiceBtn").addEventListener("click", () => {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { setStatus("chatStatus", "Speech recognition is not supported in this browser.", true); return; }
+  if (recognition) { recognition.stop(); recognition = null; $("voiceBtn").textContent = "Start voice input"; return; }
+  recognition = new SR();
+  recognition.lang = "en-US"; recognition.interimResults = false;
+  recognition.onresult = e => { $("messageInput").value = e.results[0][0].transcript; sendMessage(); };
+  recognition.onerror = e => setStatus("chatStatus", "Voice input error: " + e.error, true);
+  recognition.onend = () => { recognition = null; $("voiceBtn").textContent = "Start voice input"; };
+  recognition.start(); $("voiceBtn").textContent = "Stop voice input";
+});
+
+$("saveMemoryBtn").addEventListener("click", () => {
+  const value = $("memoryInput").value.trim();
+  if (!value) return;
+  memories.push(value); memories = memories.slice(-100); save(STORAGE.memories, memories);
+  $("memoryInput").value = ""; setStatus("memoryStatus", "Memory saved in this browser.");
+});
+$("forgetBtn").addEventListener("click", () => {
+  if (!confirm("Erase saved chat, memories, and observation history from this browser?")) return;
+  chat=[]; memories=[]; observationHistory=[]; lastObservations=[];
+  Object.values(STORAGE).forEach(k => localStorage.removeItem(k));
+  renderChat(); $("observations").textContent = "No observations yet.";
+  setStatus("memoryStatus", "Saved local memory erased.");
+});
+$("exportBtn").addEventListener("click", () => {
+  const data = {chat, memories, observationHistory};
+  const blob = new Blob([JSON.stringify(data,null,2)], {type:"application/json"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a"); a.href=url; a.download="visual-ai-memory-export.json"; a.click();
+  URL.revokeObjectURL(url);
+});
+window.addEventListener("beforeunload", stopCamera);
+</script>
+</body>
+</html>
